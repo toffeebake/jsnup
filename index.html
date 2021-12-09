@@ -1,0 +1,302 @@
+<html>
+
+<head>
+    <meta charset="utf-8" />
+    <!-- no robots crawling -->
+    <meta name="robots" content="noindex">
+
+    <!-- required JS scripts -->
+    <script src="pdf-lib.js"></script>
+    <script src="jszip.js"></script>
+
+    <title>jsnup</title>
+
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        @media only screen and (min-width: 960px) {
+            body {
+                max-width: 50%;
+            }
+        }
+
+        body {
+            margin: 1em;
+            font-family: sans-serif;
+        }
+
+        #dragdrop {
+            margin-top: 1em;
+            margin-bottom: 1em;
+            padding: 3em;
+            border: dashed;
+            transition: all 0.2s ease-in-out;
+        }
+
+        .dragover {
+            background-color: black;
+            color: white;
+        }
+
+        details {
+            margin: 1em auto 1em auto;
+            border-top: 1px solid gray;
+            padding-top: 1em;
+        }
+
+        button {
+            margin: 0.5em auto 0.5em auto;
+            background: none;
+            padding: 0;
+            border: 0;
+            text-decoration: underline;
+            cursor: pointer;
+            color: rgb(0, 0, 238); 
+        }
+
+        button:disabled {
+            color: rgb(0, 0, 0, 0.5);
+            text-decoration: none;
+            cursor: default;
+        }
+
+        #upload {
+            width: 100%; 
+            padding: 3em auto 3em auto;
+        }
+
+        #download {
+            padding-top: 1em;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>2up pdf</h1>
+    <p>Create 2-up pdfs without uploading any files to a server. pdfs are generated in your browser.</p>
+    <div id="dragdrop">
+        Drag and drop files here
+    </div>
+    <div id="upload">
+        <input type="file" id="input" multiple accept=".pdf">
+    </div>
+    <div id="download">
+        <button id="zipAll" disabled>Zip all pdfs</button>
+        <ul id="zipAllList"></ul>
+    </div>
+    <div id="preview">
+    
+        <!-- <ul id="ul-preview">
+
+        </ul> -->
+        <!-- <iframe id="pdf" style="width: 100%; height: 50%"></iframe> -->
+    </div>
+</body>
+
+<script>
+    const preview = document.getElementById("preview")
+    const inputElement = document.getElementById("input");
+    inputElement.addEventListener("change", handleUpload, false);
+
+    const dragdrop = document.getElementById("dragdrop")
+    dragdrop.addEventListener("drop", handleDrag, false)
+    dragdrop.addEventListener("dragover", handleDragover, false)
+    dragdrop.addEventListener("dragleave", handleDragleave, false)
+
+    const zipAll = document.getElementById('zipAll')
+    const zipAllList = document.getElementById('zipAllList')
+    zipAll.addEventListener("click", generateZipAll, false)
+
+    function handleDragover(event) {
+        event.preventDefault();
+        this.classList.add('dragover');
+    }
+
+    function handleDragleave(event) {
+        event.preventDefault();
+        this.classList.remove('dragover');
+    }
+
+    function handleDrag(event) {
+        event.preventDefault();
+        this.classList.remove('dragover');
+        const fileList = event.dataTransfer.files;
+        zipAll.removeAttribute('disabled')
+        handleFiles(fileList);
+    }
+
+    function handleUpload(event) {
+        const fileList = this.files; /* now you can work with the file list */
+        zipAll.removeAttribute('disabled')
+        handleFiles(fileList);
+    }
+    
+    function handleFiles(fileList) {
+        const div = document.createElement("details");
+        let d = new Date();
+        div.id = parseInt(d.getTime() / 1000)
+        div.setAttribute('open', '')
+        preview.appendChild(div)
+        
+        const p = document.createElement("summary")
+        p.innerText = d.toString();
+        div.appendChild(p)
+        const ul = document.createElement("ul")
+        div.appendChild(ul)
+
+        for (let i = 0; i < fileList.length; i++){
+            const file = fileList[i];
+
+            if (file.type != 'application/pdf') { continue }
+
+            // const iframe = document.createElement("iframe");
+            // iframe.classList.add("obj")
+            // iframe.file = file;
+            // iframe.style = "width: 100%; height: 50%;"
+            // preview.appendChild(iframe);
+            const li = document.createElement("li")
+            li.classList.add("obj")
+            li.file = file;
+            ul.appendChild(li)
+
+            const reader = new FileReader();
+            reader.onload = twoup(file, li)
+            reader.readAsDataURL(file);
+
+        }
+
+        const button = document.createElement('a')
+        button.href = '#'
+        button.class = 'zipdl'
+        button.id = `dl-${div.id}`
+        button.innerHTML = 'Generate zip'
+        button.addEventListener("click", downloadZip, false);
+        div.appendChild(button)
+    };
+
+    function downloadZip(event) {
+        event.preventDefault();
+        const id_search = this.id.replace('dl-', '')
+        console.log(id_search)
+        const div = document.getElementById(id_search)
+
+        const dlbtn = document.createElement('span')
+        dlbtn.style = 'margin-top: 1em;'
+        dlbtn.innerHTML = 'generating...'
+        div.appendChild(dlbtn)
+
+        this.style = 'display: none;'
+
+        var zip = new JSZip()
+
+        const links = div.getElementsByClassName('pdfdl')
+        for (let link of links) {
+            let href = link.getAttribute('href')
+            let filename = link.getAttribute('download')
+            zip.file(filename, fetch(href).then(response => response.blob()))
+        }
+
+        zip.generateAsync({type:"blob"})
+        .then(function (blob) {
+            blob.name = `jsnup${id_search}.zip`
+            const newLink = URL.createObjectURL(blob);
+            dlbtn.innerHTML = `<a href="${newLink}" download="${blob.name}" target="_blank">↓ Download zip</a> (${blob.size}B)`
+        });
+    }
+
+    function generateZipAll(event) {
+        event.preventDefault();
+
+        const dlbtn = document.createElement('li')
+        dlbtn.innerHTML = 'generating...'
+        zipAllList.appendChild(dlbtn)
+
+        var zip = new JSZip()
+
+        let pdfdl = preview.getElementsByClassName('pdfdl')
+        for (let element of pdfdl) {
+            let href = element.getAttribute('href')
+            let filename = element.getAttribute('download')
+            zip.file(filename, fetch(href).then(response => response.blob()))
+        }
+
+        let d = new Date();
+
+        zip.generateAsync({type:"blob"})
+        .then(function (blob) {
+            blob.name = `jsnupALL${parseInt(d.getTime() / 1000)}.zip`
+            const newLink = URL.createObjectURL(blob);
+            dlbtn.innerHTML = `${d.toString()}: <a href="${newLink}" download="${blob.name}" target="_blank" class="pdfdl">${blob.name}</a> (${blob.size}B)`
+        });
+    }
+
+    async function twoup(pdfFile, li, blobs) {
+        const PDFDocument = PDFLib.PDFDocument
+
+        // get binary of pdf
+        const pdfFileBytes = await pdfFile.arrayBuffer()
+
+        // get PDFDocument object
+        const pdfSrc = await PDFDocument.load(pdfFileBytes)
+
+        // check pages
+        // const pageCount = pdfSrc.getPageCount()
+        // if (pageCount % 2 == 1){
+        //     console.log('added blank')
+        //     const { width, height } = pdfSrc.getPage(1).getSize()
+        //     pdfSrc.addPage([width, height])
+        // }
+
+        // twoup
+        const pdfDoc = await PDFDocument.create();
+
+        const newPageCount = pdfSrc.getPageCount()
+        for (let j = 0; j < newPageCount; j = j + 2) {
+            console.log(j)
+            const [page1] = await pdfDoc.copyPages(pdfSrc, [j])
+            if (j == newPageCount - 1) {
+                let newPage1 = pdfDoc.addPage(page1)
+                newPage1.setSize(page1.getWidth() *2, page1.getHeight())
+                continue
+            }
+            const [page2] = await pdfDoc.copyPages(pdfSrc, [j + 1])
+            // const page2 = pdfDoc.copyPages(pdfSrc,[k])
+            // const [page1, page2] = pdfDoc.copyPages(pdfSrc, [j, k])
+            // console.log(page2.node.Contents())
+            // page2.drawLine({
+            //     start: {x:0, y:0},
+            //     end: {x:0, y:0},
+            //     thickness: 0,
+            //     opacity: 0,
+            // })
+            
+
+            let newPage1 = pdfDoc.addPage(page1)
+            // check if page2 is empty before embedding
+            if (page2.node.Contents()) {
+                const embedPage = await pdfDoc.embedPage(page2)
+                newPage1.drawPage(embedPage, {x:newPage1.getWidth()})
+                newPage1.setSize(page1.getWidth() + page2.getWidth(), page1.getHeight())
+            }
+            else {
+                newPage1.setSize(page1.getWidth() * 2, page1.getHeight());
+            }  
+        }
+
+        // save
+        // const pdfDataUri = await pdfDoc.saveAsBase64({ dataUri: true });
+        // iframe.src = pdfDataUri
+        const pdfBytes = await pdfDoc.save()
+        const outBlob = new Blob([pdfBytes], {type: 'application/pdf'})
+        // set outBlob name
+        let filename = pdfFile.name
+        let newname = filename.replace('.pdf', '-2up.pdf')
+        outBlob.name = newname
+
+        const newLink = URL.createObjectURL(outBlob);
+        li.innerHTML = `<a href="${newLink}" download="${newname}" target="_blank" class="pdfdl">${newname}</a> (${outBlob.size}B)`
+    }
+</script>
+</html>
